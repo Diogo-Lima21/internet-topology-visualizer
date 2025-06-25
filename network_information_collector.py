@@ -88,29 +88,29 @@ def get_reverse_dns_info(ip_address):
         return hostname
     except Exception as e:
         print(f"Erro ao obter DNS reverso para {ip_address}: {e}")
-        return None
+        return ""
     
 def get_ip_geolocation(ip_address):
     if not ip_address:
         print("Endereço IP não fornecido para geolocalização.")
         return None
     try:
-        response = requests.get(f"https://ipinfo.io/{ip_address}/json", timeout=10)
+        response = requests.get(f"https://ipinfo.io/{ip_address}/json?token=9462589d1f14ea", timeout=10)
         response.raise_for_status()
         data = response.json()
 
         if data:
             return {
-                "country": data.get("country"),
-                "city": data.get("city"),
-                "org": data.get("org"),
+                "country": data.get("country", ""),
+                "city": data.get("city", ""),
+                "org": data.get("org", ""),
             }
         else:
             print(f"Geolocalização falhou para {ip_address}")
-            return None
+            return {}
     except requests.RequestException as e:
         print(f"Erro ao obter geolocalização para {ip_address}: {e}")
-        return None
+        return {}
     finally:
         time.sleep(1.2)
 
@@ -118,17 +118,17 @@ def get_whois_info(domain):
     try:
         data = whois.query(domain)
         whois_data = {
-            "domain_name": data.name,
-            "registrar": data.registrar,
-            "creation_date": str(data.creation_date),
-            "expiration_date": str(data.expiration_date),
-            "name_servers": data.name_servers,
-            "status": data.status,
+            "domain_name": data.name if hasattr(data, 'name') and data.name else "",
+            "registrar": data.registrar if hasattr(data, 'registrar') and data.registrar else "",
+            "creation_date": str(data.creation_date) if hasattr(data, 'creation_date') and data.creation_date else "",
+            "expiration_date": str(data.expiration_date) if hasattr(data, 'expiration_date') and data.expiration_date else "",
+            "name_servers": data.nameservers if hasattr(data, 'nameservers') and data.nameservers else [], 
+            "status": data.status if hasattr(data, 'status') and data.status else [], 
         }
         return whois_data
     except Exception as e:
         print(f"Erro ao obter informações WHOIS para {domain}: {e}")
-        return None
+        return {}
     
 def get_traceroute_info(ip_address):
     traceroute_hops = []
@@ -140,7 +140,7 @@ def get_traceroute_info(ip_address):
 
     if not output:
         print(f"Erro ao executar traceroute para {ip_address}")
-        return {}
+        return traceroute_hops
     
     for line in output.splitlines():
         if "Request timed out" in line or "***" in line or "!" in line:
@@ -155,7 +155,7 @@ def get_traceroute_info(ip_address):
                     traceroute_hops.append({
                         "hop_number": hop_number,
                         "ip_address": hop_ip,
-                        "hostname": None,
+                        "hostname": "",
                         "geolocation": {}
                     })
             except ValueError:
@@ -177,10 +177,12 @@ def collect_network_data(websites_list):
 
         print(f"Obtendo informações DNS para {website}...")
         main_ip = get_dns_info(website)
-        site_data["main_ip"] = main_ip
 
-        if not main_ip:
-            print(f"Não foi possível obter o IP principal para {website}. Pulando...")
+        if main_ip:
+            site_data["main_ip"] = main_ip
+        else:
+            print(f"Não foi possível obter o IP principal para {website}. Pulando este site.")
+            all_websites_data.append(site_data)
             continue
 
         #geolocation
@@ -201,10 +203,14 @@ def collect_network_data(websites_list):
         print(f"Total de saltos no traceroute para {main_ip}: {len(hops)}")
 
 
-        unique_ips_in_path = {main_ip}
+        unique_ips_in_path = set()
+        if main_ip: 
+            unique_ips_in_path.add(main_ip)
         
         for hop in hops:
-            unique_ips_in_path.add(hop["ip_address"])
+            if hop["ip_address"]: 
+                unique_ips_in_path.add(hop["ip_address"])
+
 
         ip_details_cache = {}
         for ip in list(unique_ips_in_path):
@@ -220,7 +226,7 @@ def collect_network_data(websites_list):
         for hop in hops:
             details = ip_details_cache.get(hop["ip_address"], {})
             
-            hop["hostname"] = details.get("hostname")
+            hop["hostname"] = details.get("hostname", "")
             hop["geolocation"] = details.get("geolocation", {})
             final_hops_list.append(hop) 
 
@@ -228,8 +234,6 @@ def collect_network_data(websites_list):
         site_data["traceroute_hops"] = final_hops_list 
 
         all_websites_data.append(site_data)
-
-        time.sleep(1.2)
 
     return all_websites_data
 
